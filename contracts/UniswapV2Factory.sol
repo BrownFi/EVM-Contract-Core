@@ -6,6 +6,7 @@ import './UniswapV2Pair.sol';
 contract UniswapV2Factory is IUniswapV2Factory {
     address public feeTo;
     address public feeToSetter;
+    address public kSetter;
 
     mapping(address => mapping(address => address)) public getPair;
     address[] public allPairs;
@@ -14,6 +15,7 @@ contract UniswapV2Factory is IUniswapV2Factory {
 
     constructor(address _feeToSetter) public {
         feeToSetter = _feeToSetter;
+        kSetter = _feeToSetter;
     }
 
     function allPairsLength() external view returns (uint) {
@@ -45,5 +47,10 @@ contract UniswapV2Factory is IUniswapV2Factory {
     function setFeeToSetter(address _feeToSetter) external {
         require(msg.sender == feeToSetter, 'UniswapV2: FORBIDDEN');
         feeToSetter = _feeToSetter;
+    }
+
+    function setKSetter(address _kSetter) external {
+        require(msg.sender == kSetter, 'UniswapV2: FORBIDDEN');
+        kSetter = _kSetter;
     }
 }

@@ -27,12 +27,21 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     uint public price1CumulativeLast;
     uint public kLast; // reserve0 * reserve1, as of immediately after the most recent liquidity event
 
+    // new variables 
+    uint public pPost; // post trade price
+    uint public k = 20000; // adjustable parameter
+
     uint private unlocked = 1;
     modifier lock() {
         require(unlocked == 1, 'UniswapV2: LOCKED');
         unlocked = 0;
         _;
         unlocked = 1;
+    }
+
+    function setK(uint _k) external {
+        require(msg.sender == IUniswapV2Factory(factory).kSetter(), 'UniswapV2: FORBIDDEN');
+        k = _k;
     }
 
     function getReserves() public view returns (uint112 _reserve0, uint112 _reserve1, uint32 _blockTimestampLast) {
@@ -177,12 +186,18 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         uint amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
         require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
         { // scope for reserve{0,1}Adjusted, avoids stack too deep errors
-        uint balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));
-        uint balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));
-        require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(1000**2), 'UniswapV2: K');
+        uint balance0Adjusted = balance0.mul(10000).sub(amount0In.mul(25)); // update fee 0.5%
+        uint balance1Adjusted = balance1.mul(10000).sub(amount1In.mul(25)); // update fee 0.5%
+        require(balance0Adjusted.mul(balance1Adjusted) >= uint(_reserve0).mul(_reserve1).mul(10000**2), 'UniswapV2: K');
         }
 
+        // we should match balance to reserve, won't use (x-Dx, y-Dy) 
         _update(balance0, balance1, _reserve0, _reserve1);
+        // update post trade price
+        {
+        uint r = R(amount0Out, _reserve0, k);
+        pPost = postP(_reserve0, _reserve1, r);
+        }
         emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
     }
 
@@ -197,5 +212,22 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     // force reserves to match balances
     function sync() external lock {
         _update(IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this)), reserve0, reserve1);
+    }
+
+    // price impact
+    function R(uint amountOut, uint reserveOut, uint _k) public pure returns (uint r){
+        require(amountOut < reserveOut, 'UniswapV2Library: INSUFFICIENT_OUTPUT_AMOUNT');
+        uint numerator = _k.mul(amountOut);
+        uint denominator = reserveOut.sub(amountOut).mul(10000);
+        r = numerator / denominator + 1;
+        return r.add(1);
+    }
+
+    // post trade price
+    function postP(uint reserveIn, uint reserveOut, uint r) internal pure returns (uint p){
+        uint numerator = r.mul(3).add(4).mul(reserveOut);
+        uint denominator = reserveIn.mul(4);
+        p = numerator / denominator;
+        return p.add(1);
     }
 }
