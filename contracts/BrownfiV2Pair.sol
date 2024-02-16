@@ -176,8 +176,8 @@ contract BrownfiV2Pair is IBrownfiV2Pair, BrownfiV2ERC20 {
         address _token0 = token0;
         address _token1 = token1;
         require(to != _token0 && to != _token1, 'BrownfiV2: INVALID_TO');
-        if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out.mul(9975)/10000); // optimistically transfer tokens
-        if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out.mul(9975)/10000); // optimistically transfer tokens
+        if (amount0Out > 0) _safeTransfer(_token0, to, amountOutWithFee(amount0Out)); // optimistically transfer tokens
+        if (amount1Out > 0) _safeTransfer(_token1, to, amountOutWithFee(amount1Out)); // optimistically transfer tokens
         if (data.length > 0) IBrownfiV2Callee(to).BrownfiV2Call(msg.sender, amount0Out, amount1Out, data);
         balance0 = IERC20(_token0).balanceOf(address(this));
         balance1 = IERC20(_token1).balanceOf(address(this));
@@ -225,5 +225,11 @@ contract BrownfiV2Pair is IBrownfiV2Pair, BrownfiV2ERC20 {
         p = numerator / denominator;
         return p;
     }
+
+    // amountOut with 0.25% fee
+    function amountOutWithFee(uint amountOut) public pure returns (uint){
+        return amountOut.mul(9975)/10000;
+    }
+
 
 }

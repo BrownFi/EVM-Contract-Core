@@ -7,6 +7,7 @@ contract BrownfiV2Factory is IBrownfiV2Factory {
     address public feeTo;
     address public feeToSetter;
     address public kSetter;
+    bytes32 public constant INIT_CODE_HASH = keccak256(abi.encodePacked(type(BrownfiV2Pair).creationCode));
 
     mapping(address => mapping(address => address)) public getPair;
     address[] public allPairs;
