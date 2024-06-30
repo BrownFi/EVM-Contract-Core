@@ -1,5 +1,11 @@
 pragma solidity >=0.5.0;
 
+struct Payment {
+    address utr;
+    bytes payer;
+    address recipient;
+}
+
 interface IUniswapV2Pair {
     event Approval(address indexed owner, address indexed spender, uint value);
     event Transfer(address indexed from, address indexed to, uint value);
@@ -44,7 +50,7 @@ interface IUniswapV2Pair {
 
     function mint(address to) external returns (uint liquidity);
     function burn(address to) external returns (uint amount0, uint amount1);
-    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external;
+    function swap(Payment memory payment, uint amount0Out, uint amount1Out, address to, bytes calldata data) external;
     function skim(address to) external;
     function sync() external;
 
