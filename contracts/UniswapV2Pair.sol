@@ -7,6 +7,8 @@ import './libraries/UQ112x112.sol';
 import './interfaces/IERC20.sol';
 import './interfaces/IUniswapV2Factory.sol';
 import './interfaces/IUniswapV2Callee.sol';
+import './interfaces/IUniversalTokenRouter.sol';
+import './interfaces/AggregatorV3Interface.sol';
 
 contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     using SafeMath  for uint;
@@ -28,11 +30,35 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     uint public kLast; // reserve0 * reserve1, as of immediately after the most recent liquidity event
 
     uint private unlocked = 1;
+
+    // new variables 
+    uint public pPost; // post trade price
+    uint public kappa = 20000; // adjustable parameter
+    uint public oPrice; // oracle price
+    AggregatorV3Interface internal priceFeed;
+
     modifier lock() {
         require(unlocked == 1, 'UniswapV2: LOCKED');
         unlocked = 0;
         _;
         unlocked = 1;
+    }
+
+    function setKappa(uint _kappa) external {
+        require(msg.sender == IUniswapV2Factory(factory).kSetter(), 'UniswapV2: FORBIDDEN');
+        kappa = _kappa;
+    }
+
+    // Feed oracle price from chainlink
+    function fetchOraclePrice() internal {
+        (
+            uint80 roundID, 
+            int price,
+            uint startedAt,
+            uint timeStamp,
+            uint80 answeredInRound
+        ) = priceFeed.latestRoundData();
+        oPrice = uint(price);
     }
 
     function getReserves() public view returns (uint112 _reserve0, uint112 _reserve1, uint32 _blockTimestampLast) {
@@ -58,8 +84,9 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     );
     event Sync(uint112 reserve0, uint112 reserve1);
 
-    constructor() public {
+    constructor(address _priceFeed) public {
         factory = msg.sender;
+        priceFeed = AggregatorV3Interface(_priceFeed);
     }
 
     // called once by the factory at time of deployment
@@ -156,10 +183,15 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
     }
 
     // this low-level function should be called from a contract which performs important safety checks
-    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
+    function swap(Payment memory payment, uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
         require(amount0Out > 0 || amount1Out > 0, 'UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT');
         (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings
         require(amount0Out < _reserve0 && amount1Out < _reserve1, 'UniswapV2: INSUFFICIENT_LIQUIDITY');
+
+        // fetch oracle price
+        fetchOraclePrice();
+        // calculate pre-trade invetory x*P + y
+        uint preInvetory = oPrice.mul(_reserve0).add(_reserve1);
 
         uint balance0;
         uint balance1;
@@ -176,6 +208,9 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         uint amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0;
         uint amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
         require(amount0In > 0 || amount1In > 0, 'UniswapV2: INSUFFICIENT_INPUT_AMOUNT');
+        // call payment callback
+        if (amount0In > 0) IUniversalTokenRouter(payment.utr).pay(payment.payer, amount0In);
+        if (amount1In > 0) IUniversalTokenRouter(payment.utr).pay(payment.payer, amount1In);
         { // scope for reserve{0,1}Adjusted, avoids stack too deep errors
         uint balance0Adjusted = balance0.mul(1000).sub(amount0In.mul(3));
         uint balance1Adjusted = balance1.mul(1000).sub(amount1In.mul(3));
@@ -183,6 +218,10 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         }
 
         _update(balance0, balance1, _reserve0, _reserve1);
+        // calculate post-trade invetory (x - dx)*P + (y + dy)
+        uint postInvetory = oPrice.mul(_reserve0.sub(amount0Out)).add(_reserve1.add(amount1Out));
+        // verify post-trade invetory is greater or equal to pre-trade invetory
+        require(postInvetory >= preInvetory, 'UniswapV2: INVALID_TRADE');
         emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
     }
 
